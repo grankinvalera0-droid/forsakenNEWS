@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Forsaken News</title>
+
+  <!-- ===== СТИЛИ (темы через CSS-переменные) ===== -->
+  <style>
+    :root[data-theme="dark"] {
+      --bg: #0d0d14; --card: #16161f; --text: #eaeaf0;
+      --muted: #8b8b9b; --accent: #a06bff; --border: #2a2a3a;
+      --danger: #ff5c7a;
+    }
+    :root[data-theme="light"] {
+      --bg: #f5f5fa; --card: #ffffff; --text: #16161f;
+      --muted: #6b6b7b; --accent: #7b3dff; --border: #e0e0ea;
+      --danger: #d93654;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      transition: background .2s, color .2s;
+    }
+    button, input, select, textarea {
+      font: inherit; padding: 8px 12px; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--card);
+      color: var(--text); outline: none;
+    }
+    button { cursor: pointer; background: var(--accent); color: #fff; border: none; font-weight: 600; }
+    button:disabled { opacity: .6; cursor: default; }
+    button.secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
+    a { color: var(--accent); }
+    .container { max-width: 860px; margin: 0 auto; padding: 16px 16px 120px; }
+    .navbar {
+      display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+      justify-content: space-between; padding: 12px 16px;
+      background: var(--card); border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 10;
+    }
+    .navbar .brand { font-weight: 800; font-size: 18px; }
+    .navbar .nav-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .news-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 16px; margin: 14px 0;
+    }
+    .news-card h2 { margin: 0 0 8px; font-size: 20px; }
+    .news-card p { margin: 0 0 12px; white-space: pre-wrap; line-height: 1.45; }
+    .news-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 13px; color: var(--muted); }
+    .ban-banner {
+      background: var(--danger); color: #fff; border-radius: 12px;
+      padding: 16px; margin: 16px 0;
+    }
+    .ban-banner h2 { margin: 0 0 8px; }
+    .admin-section {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 16px; margin: 16px 0;
+    }
+    .admin-section h3 { margin-top: 0; }
+    .admin-section form { display: flex; flex-direction: column; gap: 10px; max-width: 480px; }
+    .footer {
+      position: fixed; right: 0; bottom: 0; z-index: 20;
+      background: var(--card); border: 1px solid var(--border);
+      padding: 8px 12px; font-size: 11px; color: var(--muted);
+      border-top-left-radius: 10px; max-width: 70vw;
+    }
+    .footer a { color: var(--accent); }
+    .error { color: var(--danger); font-size: 14px; }
+    .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+    .tabs button { background: transparent; color: var(--text); border: 1px solid var(--border); }
+    .tabs button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .avatar-preview { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; border: 2px solid var(--border); }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- ===== REACT + BABEL (UMD) ===== -->
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.26.0/babel.min.js"></script>
+
+  <!-- ===== i18next (UMD) ===== -->
+  <script src="https://unpkg.com/i18next@23.16.0/dist/umd/i18next.min.js"></script>
+  <script src="https://unpkg.com/react-i18next@15.1.0/dist/umd/react-i18next.min.js"></script>
+
+  <!--
+    ВАЖНО: Firebase, i18next и react-i18next грузятся как UMD/глобальные объекты.
+    Скрипт приложения ниже использует глобальные переменные:
+    React, ReactDOM, i18next, ReactI18next, firebase (namespace).
+  -->
+
+  <script>
+    // ===== ГЛОБАЛЬНЫЙ КОНФИГ FIREBASE =====
+    // ЗАМЕНИ НА СВОИ ЗНАЧЕНИЯ ИЗ FIREBASE CONSOLE → Project settings → Your apps
+    window.FIREBASE_CONFIG = {
+      apiKey: "PASTE_API_KEY",
+      authDomain: "PASTE_PROJECT_ID.firebaseapp.com",
+      projectId: "PASTE_PROJECT_ID",
+      storageBucket: "PASTE_PROJECT_ID.appspot.com",
+      messagingSenderId: "PASTE_SENDER_ID",
+      appId: "PASTE_APP_ID"
+    };
+  </script>
+
+  <!-- ===== ОСНОВНОЙ КОД ПРИЛОЖЕНИЯ (JSX) ===== -->
+  <script type="text/babel" data-type="module">
+    /* ============================================================
+       1. ПОДКЛЮЧЕНИЕ FIREBASE (ESM-ИМПОРТЫ ИЗ CDN)
+       ============================================================ */
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
+    import {
+      getAuth, onAuthStateChanged, createUserWithEmailAndPassword,
+      signInWithEmailAndPassword, signOut, updateEmail
+    } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
+    import {
+      getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc,
+      collection, addDoc, query, where, orderBy, onSnapshot,
+      serverTimestamp, getDocs
+    } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
+    import {
+      getStorage, ref, uploadBytes, getDownloadURL
+    } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-storage.js";
+
+    /* ============================================================
+       2. ИНИЦИАЛИЗАЦИЯ FIREBASE
+       ============================================================ */
+    const app = initializeApp(window.FIREBASE_CONFIG);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const storage = getStorage(app);
+
+    /* ============================================================
+       3. I18N: 12 ЯЗЫКОВ
+       ============================================================ */
+    const { useTranslation, I18nextProvider } = ReactI18next;
+    const i18n = i18next.createInstance();
+
+    const LANGUAGES = [
+      { code: "ru", name: "Русский" },
+      { code: "en", name: "English" },
+      { code: "uk", name: "Українська" },
+      { code: "es", name: "Español" },
+      { code: "pt", name: "Português" },
+      { code: "de", name: "Deutsch" },
+      { code: "fr", name: "Français" },
+      { code: "pl", name: "Polski" },
+      { code: "tr", name: "Türkçe" },
+      { code: "ja", name: "日本語" },
+      { code: "ko", name: "한국어" },
+      { code: "zh", name: "中文" }
+    ];
+
+    const RU = {
+      news: "Новости", login: "Войти", register: "Регистрация", logout: "Выйти",
+      username: "Юзернейм", password: "Пароль", addNews: "Добавить новость",
+      title: "Заголовок", body: "Текст", publish: "Опубликовать", source: "Источник",
+      admin: "Админ-панель", banUser: "Забанить пользователя", ban: "Забанить",
+      banned: "Пользователь забанен", userNotFound: "Пользователь не найден",
+      customReason: "Своя причина", youAreBanned: "Вы забанены",
+      appealText: "Опишите, почему бан должен быть снят",
+      submitAppeal: "Подать апелляцию", appealSent: "Апелляция отправлена",
+      reasons: { cheating: "Читерство", insults: "Оскорбления", spam: "Спам", advertising: "Реклама", other: "Другое" },
+      theme: "Тема", language: "Язык", profile: "Профиль", avatar: "Аватарка",
+      save: "Сохранить", appeals: "Апелляции", roles: "Роли",
+      makeAdmin: "Сделать админом", removeAdmin: "Снять с должности",
+      approve: "Одобрить", reject: "Отклонить", owner: "Владелец", adminRole: "Админ", userRole: "Пользователь",
+      noNews: "Новостей пока нет.", loading: "Загрузка...",
+      passwordHint: "Минимум 8 символов, хотя бы одна буква и цифра.",
+      usernameHint: "3–20 символов: латиница, цифры, _ и -.",
+      usernameTaken: "Этот ник уже занят.", weakPassword: "Слабый пароль.",
+      invalidUsername: "Некорректный ник.", wrongCredentials: "Неверный ник или пароль.",
+      autoTranslate: "Автоперевод всех языков", translating: "Переводим..."
+    };
+
+    const EN = {
+      news: "News", login: "Login", register: "Register", logout: "Logout",
+      username: "Username", password: "Password", addNews: "Add news",
+      title: "Title", body: "Body", publish: "Publish", source: "Source",
+      admin: "Admin panel", banUser: "Ban user", ban: "Ban",
+      banned: "User banned", userNotFound: "User not found",
+      customReason: "Custom reason", youAreBanned: "You are banned",
+      appealText: "Explain why the ban should be lifted",
+      submitAppeal: "Submit appeal", appealSent: "Appeal sent",
+      reasons: { cheating: "Cheating", insults: "Insults", spam: "Spam", advertising: "Advertising", other: "Other" },
+      theme: "Theme", language: "Language", profile: "Profile", avatar: "Avatar",
+      save: "Save", appeals: "Appeals", roles: "Roles",
+      makeAdmin: "Make admin", removeAdmin: "Remove admin",
+      approve: "Approve", reject: "Reject", owner: "Owner", adminRole: "Admin", userRole: "User",
+      noNews: "No news yet.", loading: "Loading...",
+      passwordHint: "At least 8 characters, one letter and one digit.",
+      usernameHint: "3–20 chars: letters, digits, _ and -.",
+      usernameTaken: "Username already taken.", weakPassword: "Weak password.",
+      invalidUsername: "Invalid username.", wrongCredentials: "Wrong username or password.",
+      autoTranslate: "Auto-translate all languages", translating: "Translating..."
+    };
+
+    // Для остальных языков используем английский как fallback,
+    // чтобы не раздувать файл. При желании замени на реальные переводы.
+    const resources = { ru: { translation: RU }, en: { translation: EN } };
+
+    i18n.init({
+      resources,
+      lng: localStorage.getItem("lang") || "ru",
+      fallbackLng: "en",
+      interpolation: { escapeValue: false }
+    });
+
+    /* ============================================================
+       4. АВТОПЕРЕВОД ЧЕРЕЗ MYMEMORY (БЕСПЛАТНО, БЕЗ КЛЮЧА)
+       ============================================================ */
+    async function translateChunk(text, from, to) {
+      if (from === to || !text) return text;
+      const params = new URLSearchParams({
+        q: text.slice(0, 500), // лимит MyMemory — 500 байт на запрос
+        langpair: `${from}|${to}`
+      });
+      const res = await fetch(`https://api.mymemory.translated.net/get?${params}`);
+      const data = await res.json().catch(() => null);
+      return data?.responseData?.translatedText || text;
+    }
+
+    async function autoTranslate(text, fromLang, targetLangs) {
+      const out = {};
+      // Разбиваем на куски по 450 символов, чтобы не превышать лимит
+      const chunks = text.match(/[\s\S]{1,450}/g) || [];
+      for (const lang of targetLangs) {
+        let result = "";
+        for (const chunk of chunks) {
+          result += (await translateChunk(chunk, fromLang, lang)) + " ";
+        }
+        out[lang] = result.trim();
+      }
+      return out;
+    }
+
+    /* ============================================================
+       5. AUTH CONTEXT
+       ============================================================ */
+    const AuthCtx = React.createContext();
+    const useAuth = () => React.useContext(AuthCtx);
+    const OWNER_USERNAME = "ozisoofilion";
+
+    function AuthProvider({ children }) {
+      const [user, setUser] = React.useState(null);
+      const [profile, setProfile] = React.useState(null);
+      const [loading, setLoading] = React.useState(true);
+
+      React.useEffect(() => {
+        return onAuthStateChanged(auth, async (u) => {
+          setUser(u);
+          if (u) {
+            const snap = await getDoc(doc(db, "users", u.uid));
+            setProfile(snap.exists() ? snap.data() : null);
+          } else {
+            setProfile(null);
+          }
+          setLoading(false);
+        });
+      }, []);
+
+      const emailFor = (username) => `${username.toLowerCase()}@forsaken.local`;
+
+      async function register(username, password) {
+        if (!/^[A-Za-z0-9_-]{3,20}$/.test(username)) throw new Error("INVALID_USERNAME");
+        if (password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password))
+          throw new Error("WEAK_PASSWORD");
+
+        const unameRef = doc(db, "usernames", username.toLowerCase());
+        if ((await getDoc(unameRef)).exists()) throw new Error("USERNAME_TAKEN");
+
+        const cred = await createUserWithEmailAndPassword(auth, emailFor(username), password);
+        const role = username.toLowerCase() === OWNER_USERNAME ? "owner" : "user";
+
+        await setDoc(doc(db, "users", cred.user.uid), {
+          username, role, avatarUrl: "", createdAt: serverTimestamp()
+        });
+        await setDoc(unameRef, { uid: cred.user.uid });
+        setProfile({ username, role, avatarUrl: "" });
+      }
+
+      async function login(username, password) {
+        const cred = await signInWithEmailAndPassword(auth, emailFor(username), password);
+        const snap = await getDoc(doc(db, "users", cred.user.uid));
+        setProfile(snap.data());
+      }
+
+      return (
+        <AuthCtx.Provider value={{
+          user, profile, loading, register, login,
+          logout: () => signOut(auth)
+        }}>
+          {children}
+        </AuthCtx.Provider>
+      );
+    }
+
+    /* ============================================================
+       6. THEME CONTEXT
+       ============================================================ */
+    const ThemeCtx = React.createContext();
+    const useTheme = () => React.useContext(ThemeCtx);
+
+    function ThemeProvider({ children }) {
+      const [theme, setTheme] = React.useState(localStorage.getItem("theme") || "dark");
+      React.useEffect(() => {
+        document.documentElement.dataset.theme = theme;
+        localStorage.setItem("theme", theme);
+      }, [theme]);
+      return (
+        <ThemeCtx.Provider value={{
+          theme,
+          toggle: () => setTheme(t => (t === "dark" ? "light" : "dark"))
+        }}>
+          {children}
+        </ThemeCtx.Provider>
+      );
+    }
+
+    /* ============================================================
+       7. НЕБОЛЬШИЕ КОМПОНЕНТЫ
+       ============================================================ */
+    function Navbar() {
+      const { profile, logout } = useAuth();
+      const { theme, toggle } = useTheme();
+      const { t, i18n } = useTranslation();
+
+      return (
+        <nav className="navbar">
+          <div className="brand">🕯️ Forsaken News</div>
+          <div className="nav-actions">
+            <select
+              value={i18n.language}
+              onChange={(e) => {
+                i18n.changeLanguage(e.target.value);
+                localStorage.setItem("lang", e.target.value);
+              }}
+            >
+              {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
+            </select>
+            <button className="secondary" onClick={toggle}>
+              {theme === "dark" ? "☀️" : "🌙"}
+            </button>
+            {profile ? (
+              <>
+                <a href="#/profile" className="secondary" style={{ padding: "8px 12px", border: "1px solid var(--border)", borderRadius: 8, textDecoration: "none" }}>
+                  {profile.username}
+                </a>
+                {(profile.role === "owner" || profile.role === "admin") && (
+                  <a href="#/admin" className="secondary" style={{ padding: "8px 12px", border: "1px solid var(--border)", borderRadius: 8, textDecoration: "none" }}>
+                    {t("admin")}
+                  </a>
+                )}
+                <button className="secondary" onClick={logout}>{t("logout")}</button>
+              </>
+            ) : (
+              <a href="#/auth" style={{ padding: "8px 12px", background: "var(--accent)", color: "#fff", borderRadius: 8, textDecoration: "none" }}>
+                {t("login")}
+              </a>
+            )}
+          </div>
+        </nav>
+      );
+    }
+
+    function Footer() {
+      return (
+        <div className="footer">
+          берем новости отсюда:{" "}
+          <a href="https://t.me/forsakenNewsRuofficial" target="_blank" rel="noreferrer">https://t.me/forsakenNewsRuofficial</a>,{" "}
+          <a href="https://t.me/ForsakenNewsWek" target="_blank" rel="noreferrer">https://t.me/ForsakenNewsWek</a>,{" "}
+          <a href="https://t.me/ForsakenNews" target="_blank" rel="noreferrer">https://t.me/ForsakenNews</a>
+        </div>
+      );
+    }
+
+    function NewsCard({ news, lang }) {
+      const { t } = useTranslation();
+      const title = news.langs?.[lang]?.title || news.title;
+      const body = news.langs?.[lang]?.body || news.body;
+      return (
+        <article className="news-card">
+          <h2>{title}</h2>
+          <p>{body}</p>
+          <div className="news-meta">
+            {news.source && <a href={news.source} target="_blank" rel="noreferrer">{t("source")}</a>}
+            <span>{news.createdAt?.toDate?.().toLocaleString?.() || ""}</span>
+          </div>
+        </article>
+      );
+    }
+
+    function BanBanner() {
+      const { profile, user } = useAuth();
+      const { t } = useTranslation();
+      const [text, setText] = React.useState("");
+      const [sent, setSent] = React.useState(false);
+      if (!profile?.banned) return null;
+
+      async function send(e) {
+        e.preventDefault();
+        await addDoc(collection(db, "appeals"), {
+          userId: user.uid, username: profile.username,
+          text, status: "pending", createdAt: serverTimestamp()
+        });
+        setSent(true);
+      }
+
+      return (
+        <div className="ban-banner">
+          <h2>🚫 {t("youAreBanned")}</h2>
+          {!sent ? (
+            <form onSubmit={send} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <textarea required value={text} onChange={e => setText(e.target.value)} placeholder={t("appealText")} rows={4} />
+              <button type="submit">{t("submitAppeal")}</button>
+            </form>
+          ) : <p>{t("appealSent")}</p>}
+        </div>
+      );
+    }
+
+    /* ============================================================
+       8. СТРАНИЦЫ
+       ============================================================ */
+    function Home() {
+      const { t, i18n } = useTranslation();
+      const [news, setNews] = React.useState([]);
+      const [loading, setLoading] = React.useState(true);
+
+      React.useEffect(() => {
+        const q = query(collection(db, "news"), orderBy("createdAt", "desc"));
+        return onSnapshot(q, snap => {
+          setNews(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+          setLoading(false);
+        });
+      }, []);
+
+      return (
+        <div>
+          <BanBanner />
+          {loading ? <p>{t("loading")}</p> :
+            news.length === 0 ? <p>{t("noNews")}</p> :
+            news.map(n => <NewsCard key={n.id} news={n} lang={i18n.language} />)}
+        </div>
+      );
+    }
+
+    function AuthPage() {
+      const { register, login } = useAuth();
+      const { t } = useTranslation();
+      const [mode, setMode] = React.useState("login");
+      const [username, setUsername] = React.useState("");
+      const [password, setPassword] = React.useState("");
+      const [error, setError] = React.useState("");
+      const [busy, setBusy] = React.useState(false);
+
+      async function submit(e) {
+        e.preventDefault();
+        setError(""); setBusy(true);
+        try {
+          if (mode === "register") await register(username, password);
+          else await login(username, password);
+          window.location.hash = "#/";
+        } catch (err) {
+          const map = {
+            INVALID_USERNAME: t("invalidUsername"),
+            WEAK_PASSWORD: t("weakPassword"),
+            USERNAME_TAKEN: t("usernameTaken")
+          };
+          setError(map[err.message] || t("wrongCredentials"));
+        }
+        setBusy(false);
+      }
+
+      return (
+        <div style={{ maxWidth: 420, margin: "40px auto" }}>
+          <div className="tabs">
+            <button className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>{t("login")}</button>
+            <button className={mode === "register" ? "active" : ""} onClick={() => setMode("register")}>{t("register")}</button>
+          </div>
+          <form onSubmit={submit} className="admin-section">
+            <div>
+              <label>{t("username")}</label>
+              <input value={username} onChange={e => setUsername(e.target.value)} required />
+              <p style={{ fontSize: 12, color: "var(--muted)" }}>{t("usernameHint")}</p>
+            </div>
+            <div>
+              <label>{t("password")}</label>
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} required />
+              <p style={{ fontSize: 12, color: "var(--muted)" }}>{t("passwordHint")}</p>
+            </div>
+            {error && <p className="error">{error}</p>}
+            <button type="submit" disabled={busy}>{busy ? "..." : mode === "login" ? t("login") : t("register")}</button>
+          </form>
+        </div>
+      );
+    }
+
+    function Profile() {
+      const { profile, user } = useAuth();
+      const { t } = useTranslation();
+      const [avatarUrl, setAvatarUrl] = React.useState(profile?.avatarUrl || "");
+      const [busy, setBusy] = React.useState(false);
+
+      if (!user || !profile) return <p>{t("login")}</p>;
+
+      async function uploadAvatar(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (file.size > 2 * 1024 * 1024) return alert("Максимум 2 МБ");
+        setBusy(true);
+        const storageRef = ref(storage, `avatars/${user.uid}`);
+        await uploadBytes(storageRef, file);
+        const url = await getDownloadURL(storageRef);
+        await updateDoc(doc(db, "users", user.uid), { avatarUrl: url });
+        setAvatarUrl(url);
+        setBusy(false);
+      }
+
+      return (
+        <div className="admin-section">
+          <h2>{t("profile")}</h2>
+          <p><b>{profile.username}</b> — {t(profile.role === "owner" ? "owner" : profile.role === "admin" ? "adminRole" : "userRole")}</p>
+          <div style={{ display: "flex", gap: 16, alignItems: "center", margin: "16px 0" }}>
+            <img className="avatar-preview" src={avatarUrl || "https://ui-avatars.com/api/?name=" + profile.username} alt="avatar" />
+            <div>
+              <label>{t("avatar")}</label>
+              <input type="file" accept="image/*" onChange={uploadAvatar} disabled={busy} />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ============================================================
+       9. АДМИН-ПАНЕЛЬ
+       ============================================================ */
+    const REASONS = ["cheating", "insults", "spam", "advertising", "other"];
+
+    function AddNews() {
+      const { t } = useTranslation();
+      const [title, setTitle] = React.useState("");
+      const [body, setBody] = React.useState("");
+      const [source, setSource] = React.useState("");
+      const [srcLang, setSrcLang] = React.useState("ru");
+      const [busy, setBusy] = React.useState(false);
+      const [progress, setProgress] = React.useState("");
+
+      async function submit(e) {
+        e.preventDefault();
+        setBusy(true);
+        const targets = LANGUAGES.map(l => l.code).filter(c => c !== srcLang);
+        setProgress(t("translating"));
+        const [titleLangs, bodyLangs] = await Promise.all([
+          autoTranslate(title, srcLang, targets),
+          autoTranslate(body, srcLang, targets)
+        ]);
+        const langs = {};
+        for (const code of LANGUAGES.map(l => l.code)) {
+          langs[code] = {
+            title: code === srcLang ? title : titleLangs[code],
+            body: code === srcLang ? body : bodyLangs[code]
+          };
+        }
+        await addDoc(collection(db, "news"), {
+          title, body, source, langs, srcLang, createdAt: serverTimestamp()
+        });
+        setTitle(""); setBody(""); setSource(""); setProgress("");
+        setBusy(false);
+      }
+
+      return (
+        <div className="admin-section">
+          <h3>{t("addNews")}</h3>
+          <form onSubmit={submit}>
+            <label>Язык исходника:
+              <select value={srcLang} onChange={e => setSrcLang(e.target.value)}>
+                {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
+              </select>
+            </label>
+            <input placeholder={t("title")} value={title} onChange={e => setTitle(e.target.value)} required />
+            <textarea placeholder={t("body")} value={body} onChange={e => setBody(e.target.value)} required rows={6} />
+            <input placeholder="https://t.me/... (source)" value={source} onChange={e => setSource(e.target.value)} />
+            <button disabled={busy}>{busy ? progress || "..." : t("publish")}</button>
+          </form>
+        </div>
+      );
+    }
+
+    function BanManager() {
+      const { t } = useTranslation();
+      const [username, setUsername] = React.useState("");
+      const [reason, setReason] = React.useState("cheating");
+      const [custom, setCustom] = React.useState("");
+      const [msg, setMsg] = React.useState("");
+
+      async function ban(e) {
+        e.preventDefault();
+        setMsg("");
+        const uSnap = await getDocs(query(collection(db, "usernames"), where("__name__", "==", username.toLowerCase())));
+        if (uSnap.empty) return setMsg(t("userNotFound"));
+        const targetUid = uSnap.docs[0].data().uid;
+        await addDoc(collection(db, "bans"), {
+          userId: targetUid, username, reason,
+          customReason: custom, bannedBy: "admin",
+          createdAt: serverTimestamp(), active: true
+        });
+        await updateDoc(doc(db, "users", targetUid), { banned: true });
+        setMsg(t("banned")); setUsername(""); setCustom("");
+      }
+
+      return (
+        <div className="admin-section">
+          <h3>{t("banUser")}</h3>
+          <form onSubmit={ban}>
+            <input placeholder={t("username")} value={username} onChange={e => setUsername(e.target.value)} required />
+            <select value={reason} onChange={e => setReason(e.target.value)}>
+              {REASONS.map(r => <option key={r} value={r}>{t(`reasons.${r}`)}</option>)}
+            </select>
+            {reason === "other" && (
+              <input placeholder={t("customReason")} value={custom} onChange={e => setCustom(e.target.value)} required />
+            )}
+            <button type="submit">{t("ban")}</button>
+            {msg && <p>{msg}</p>}
+          </form>
+        </div>
+      );
+    }
+
+    function AppealsManager() {
+      const { t } = useTranslation();
+      const [appeals, setAppeals] = React.useState([]);
+
+      React.useEffect(() => {
+        const q = query(collection(db, "appeals"), where("status", "==", "pending"), orderBy("createdAt", "desc"));
+        return onSnapshot(q, snap => setAppeals(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+      }, []);
+
+      async function resolve(appeal, approve) {
+        if (approve) {
+          await updateDoc(doc(db, "users", appeal.userId), { banned: false });
+        }
+        await updateDoc(doc(db, "appeals", appeal.id), { status: approve ? "approved" : "rejected" });
+      }
+
+      return (
+        <div className="admin-section">
+          <h3>{t("appeals")}</h3>
+          {appeals.length === 0 && <p>—</p>}
+          {appeals.map(a => (
+            <div key={a.id} style={{ borderTop: "1px solid var(--border)", padding: "12px 0" }}>
+              <p><b>{a.username}</b>: {a.text}</p>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => resolve(a, true)}>{t("approve")}</button>
+                <button className="secondary" onClick={() => resolve(a, false)}>{t("reject")}</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    function RolesManager() {
+      const { profile } = useAuth();
+      const { t } = useTranslation();
+      const [username, setUsername] = React.useState("");
+      const [msg, setMsg] = React.useState("");
+
+      if (profile?.role !== "owner") return null;
+
+      async function findUser() {
+        setMsg("");
+        const snap = await getDocs(query(collection(db, "usernames"), where("__name__", "==", username.toLowerCase())));
+        if (snap.empty) return setMsg(t("userNotFound"));
+        return snap.docs[0].data().uid;
+      }
+
+      async function makeAdmin() {
+        const uid = await findUser();
+        if (!uid) return;
+        await updateDoc(doc(db, "users", uid), { role: "admin" });
+        setMsg(`✅ ${username} → admin`);
+      }
+
+      async function removeAdmin() {
+        const uid = await findUser();
+        if (!uid) return;
+        await updateDoc(doc(db, "users", uid), { role: "user" });
+        setMsg(`✅ ${username} → user`);
+      }
+
+      return (
+        <div className="admin-section">
+          <h3>{t("roles")}</h3>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input placeholder={t("username")} value={username} onChange={e => setUsername(e.target.value)} />
+            <button onClick={makeAdmin}>{t("makeAdmin")}</button>
+            <button className="secondary" onClick={removeAdmin}>{t("removeAdmin")}</button>
+          </div>
+          {msg && <p>{msg}</p>}
+        </div>
+      );
+    }
+
+    function AdminPage() {
+      const { profile, loading } = useAuth();
+      const { t } = useTranslation();
+      const [tab, setTab] = React.useState("news");
+
+      if (loading) return <p>{t("loading")}</p>;
+      if (!profile || (profile.role !== "admin" && profile.role !== "owner")) {
+        return <p>Доступ запрещён.</p>;
+      }
+
+      const tabs = [
+        { id: "news", label: t("addNews") },
+        { id: "ban", label: t("banUser") },
+        { id: "appeals", label: t("appeals") },
+        ...(profile.role === "owner" ? [{ id: "roles", label: t("roles") }] : [])
+      ];
+
+      return (
+        <div>
+          <div className="tabs">
+            {tabs.map(x => (
+              <button key={x.id} className={tab === x.id ? "active" : ""} onClick={() => setTab(x.id)}>{x.label}</button>
+            ))}
+          </div>
+          {tab === "news" && <AddNews />}
+          {tab === "ban" && <BanManager />}
+          {tab === "appeals" && <AppealsManager />}
+          {tab === "roles" && <RolesManager />}
+        </div>
+      );
+    }
+
+    /* ============================================================
+       10. РОУТЕР И APP
+       ============================================================ */
+    function useHashRoute() {
+      const [hash, setHash] = React.useState(window.location.hash || "#/");
+      React.useEffect(() => {
+        const onChange = () => setHash(window.location.hash || "#/");
+        window.addEventListener("hashchange", onChange);
+        return () => window.removeEventListener("hashchange", onChange);
+      }, []);
+      return hash;
+    }
+
+    function App() {
+      const hash = useHashRoute();
+      const { loading } = useAuth();
+      const { t } = useTranslation();
+
+      if (loading) return <p style={{ padding: 20 }}>{t("loading")}</p>;
+
+      let page;
+      if (hash.startsWith("#/auth")) page = <AuthPage />;
+      else if (hash.startsWith("#/profile")) page = <Profile />;
+      else if (hash.startsWith("#/admin")) page = <AdminPage />;
+      else page = <Home />;
+
+      return (
+        <div>
+          <Navbar />
+          <div className="container">{page}</div>
+          <Footer />
+        </div>
+      );
+    }
+
+    /* ============================================================
+       11. РЕНДЕР
+       ============================================================ */
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(
+      <I18nextProvider i18n={i18n}>
+        <ThemeProvider>
+          <AuthProvider>
+            <App />
+          </AuthProvider>
+        </ThemeProvider>
+      </I18nextProvider>
+    );
+  </script>
+</body>
+</html>
